@@ -506,23 +506,37 @@ function handleSearch(): void {
         return;
     }
 
-    // ac.stock.naver.com — 국내주식 자동완성 (JSON 응답 확인)
-    $url  = 'https://ac.stock.naver.com/ac?q=' . urlencode($q) . '&target=stock,etf';
-    $opts = [
-        'http' => [
-            'method'        => 'GET',
-            'header'        => implode("\r\n", [
-                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer: https://finance.naver.com/',
-                'Accept: application/json',
-                'Accept-Encoding: identity',
-            ]),
-            'timeout'       => 5,
-            'ignore_errors' => true,
-        ],
-        'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+    $url     = 'https://ac.stock.naver.com/ac?q=' . urlencode($q) . '&target=stock,etf';
+    $headers = [
+        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer: https://finance.naver.com/',
+        'Accept: application/json',
+        'Accept-Encoding: identity',
     ];
-    $raw = @file_get_contents($url, false, stream_context_create($opts));
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_HTTPHEADER     => $headers,
+        ]);
+        $raw = curl_exec($ch);
+        curl_close($ch);
+    } else {
+        $opts = [
+            'http' => [
+                'method'        => 'GET',
+                'header'        => implode("\r\n", $headers),
+                'timeout'       => 5,
+                'ignore_errors' => true,
+            ],
+            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+        ];
+        $raw = @file_get_contents($url, false, stream_context_create($opts));
+    }
 
     $results = [];
     if ($raw) {
