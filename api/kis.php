@@ -6,7 +6,7 @@ header('Access-Control-Allow-Origin: *');
 
 // ===== 파일 캐시 (KIS API 호출 횟수 최소화) =====
 
-function cacheGet(string $key): mixed {
+function cacheGet(string $key) {
     $file = __DIR__ . '/cache_' . $key . '.json';
     if (!file_exists($file)) return null;
     $data = json_decode(file_get_contents($file), true);
@@ -14,7 +14,7 @@ function cacheGet(string $key): mixed {
     return $data['payload'];
 }
 
-function cacheSet(string $key, mixed $payload, int $ttl): void {
+function cacheSet(string $key, $payload, int $ttl): void {
     $file = __DIR__ . '/cache_' . $key . '.json';
     file_put_contents($file, json_encode([
         'expires_at' => time() + $ttl,
@@ -25,42 +25,54 @@ function cacheSet(string $key, mixed $payload, int $ttl): void {
 // ===== HTTP 요청 (file_get_contents, curl 불필요) =====
 
 function httpRequest(string $url, array $headers, ?string $postBody = null): array {
-    $opts = [
-        'http' => [
-            'method'        => $postBody !== null ? 'POST' : 'GET',
-            'header'        => implode("\r\n", $headers),
-            'timeout'       => 10,
-            'ignore_errors' => true,
-        ],
-        'ssl' => [
-            'verify_peer'      => false,
-            'verify_peer_name' => false,
-        ],
-    ];
-    if ($postBody !== null) {
-        $opts['http']['content'] = $postBody;
-    }
+    $isPost = $postBody !== null;
+    $res = false;
 
-    $ctx = stream_context_create($opts);
-    $res = @file_get_contents($url, false, $ctx);
-
-    if ($res === false) {
-        throw new RuntimeException('네트워크 오류: ' . $url);
-    }
-
-    $code = 0;
-    foreach ($http_response_header as $h) {
-        if (preg_match('/^HTTP\/\S+\s+(\d+)/', $h, $m)) {
-            $code = (int)$m[1];
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_HTTPHEADER     => $headers,
+        ]);
+        if ($isPost) {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $postBody);
+        }
+        $res  = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    } else {
+        $opts = [
+            'http' => [
+                'method'        => $isPost ? 'POST' : 'GET',
+                'header'        => implode("\r\n", $headers),
+                'timeout'       => 10,
+                'ignore_errors' => true,
+            ],
+            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+        ];
+        if ($isPost) $opts['http']['content'] = $postBody;
+        $res  = @file_get_contents($url, false, stream_context_create($opts));
+        $code = 0;
+        if ($res !== false && isset($http_response_header)) {
+            foreach ($http_response_header as $h) {
+                if (preg_match('/^HTTP\/\S+\s+(\d+)/', $h, $m)) $code = (int)$m[1];
+            }
         }
     }
-    if ($code !== 200) {
+
+    if ($res === false || $res === '') {
+        throw new RuntimeException('네트워크 오류: ' . $url);
+    }
+    if ($code !== 0 && $code !== 200) {
         throw new RuntimeException('HTTP ' . $code . ': ' . $res);
     }
 
     $decoded = json_decode($res, true) ?? [];
 
-    // KIS API 비즈니스 에러 체크
     if (isset($decoded['rt_cd']) && $decoded['rt_cd'] !== '0') {
         throw new RuntimeException('KIS API 오류: ' . ($decoded['msg1'] ?? $res));
     }
@@ -258,7 +270,7 @@ function applyPeriodReturns(array $stocks, string $period): array {
                 $stock['changePct'] = round(($stock['price'] - $startClose) / $startClose * 100, 2);
                 $stock['change']    = $stock['price'] - $startClose;
             }
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // 실패 시 일간 등락률 유지
         }
     }
@@ -542,17 +554,15 @@ function handleSearch(): void {
 $action = $_GET['action'] ?? '';
 
 try {
-    match ($action) {
-        'volume_rank'    => handleVolumeRank(),
-        'trending'       => handleTrending(),
-        'investor_trend' => handleInvestorTrend(),
-        'investor_stock' => handleInvestorStock(),
-        'index'          => handleIndex(),
-        'price'          => handlePrice(),
-        'chart'          => handleChart(),
-        'search'         => handleSearch(),
-        default          => throw new RuntimeException('알 수 없는 action: ' . htmlspecialchars($action)),
-    };
+    if      ($action === 'volume_rank')    handleVolumeRank();
+    elseif  ($action === 'trending')       handleTrending();
+    elseif  ($action === 'investor_trend') handleInvestorTrend();
+    elseif  ($action === 'investor_stock') handleInvestorStock();
+    elseif  ($action === 'index')          handleIndex();
+    elseif  ($action === 'price')          handlePrice();
+    elseif  ($action === 'chart')          handleChart();
+    elseif  ($action === 'search')         handleSearch();
+    else    throw new RuntimeException('알 수 없는 action: ' . htmlspecialchars($action));
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);

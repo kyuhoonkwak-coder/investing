@@ -7,11 +7,9 @@ header('Access-Control-Allow-Origin: *');
 $body = json_decode(file_get_contents('php://input'), true) ?? [];
 $action = $body['action'] ?? ($_GET['action'] ?? '');
 
-match ($action) {
-    'balance' => handleBalance(),
-    'order'   => handleOrder($body),
-    default   => err('알 수 없는 액션'),
-};
+if      ($action === 'balance') handleBalance();
+elseif  ($action === 'order')   handleOrder($body);
+else    err('알 수 없는 액션');
 
 /* ───────── VTS 토큰 ───────── */
 function vtsToken(): string {
@@ -154,6 +152,23 @@ function handleOrder(array $b): void {
 /* ───────── HTTP 헬퍼 ───────── */
 function kis_http(string $method, string $url, array $params, string $body, array $headers): string {
     if ($params) $url .= '?' . http_build_query($params);
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_CUSTOMREQUEST  => $method,
+        ]);
+        if ($body !== '') curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        $res = (string)curl_exec($ch);
+        curl_close($ch);
+        return $res;
+    }
+
     $opts = [
         'http' => [
             'method'        => $method,
