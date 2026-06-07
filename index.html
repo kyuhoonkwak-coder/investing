@@ -22,12 +22,17 @@
       flex-shrink: 0;
       background: #fff;
       border-bottom: 1px solid var(--border);
+      height: 40px;
+      overflow-x: auto;
+    }
+    .market-strip-inner {
+      max-width: 1440px;
+      margin: 0 auto;
       padding: 0 24px;
       display: flex;
       align-items: center;
       gap: 28px;
-      height: 40px;
-      overflow-x: auto;
+      height: 100%;
     }
     .mstrip-item { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
     .mstrip-name { font-size: 11px; color: var(--text2); }
@@ -473,7 +478,8 @@
       .btn-login { padding: 7px 14px; font-size: 12px; }
 
       /* 시장 스트립 */
-      .market-strip { padding: 0 16px; gap: 14px; height: 36px; }
+      .market-strip { height: 36px; }
+      .market-strip-inner { padding: 0 16px; gap: 14px; }
       .mstrip-sep { display: none; }
       .mstrip-change { display: none; }
 
@@ -581,28 +587,30 @@
 
     <!-- 시장 지수 스트립 -->
     <div class="market-strip">
-      <div class="mstrip-item">
-        <span class="mstrip-name">코스피</span>
-        <span class="mstrip-value" id="ms-kospi">—</span>
-        <span class="mstrip-change" id="ms-kospi-chg"></span>
-      </div>
-      <span class="mstrip-sep">|</span>
-      <div class="mstrip-item">
-        <span class="mstrip-name">코스닥</span>
-        <span class="mstrip-value" id="ms-kosdaq">—</span>
-        <span class="mstrip-change" id="ms-kosdaq-chg"></span>
-      </div>
-      <span class="mstrip-sep">|</span>
-      <div class="mstrip-item">
-        <span class="mstrip-name">코스피200</span>
-        <span class="mstrip-value" id="ms-kp200">—</span>
-        <span class="mstrip-change" id="ms-kp200-chg"></span>
-      </div>
-      <span class="mstrip-sep">|</span>
-      <div class="mstrip-item">
-        <span class="mstrip-name">원/달러</span>
-        <span class="mstrip-value" id="ms-usd">—</span>
-        <span class="mstrip-change" id="ms-usd-chg"></span>
+      <div class="market-strip-inner">
+        <div class="mstrip-item">
+          <span class="mstrip-name">코스피</span>
+          <span class="mstrip-value" id="ms-kospi">—</span>
+          <span class="mstrip-change" id="ms-kospi-chg"></span>
+        </div>
+        <span class="mstrip-sep">|</span>
+        <div class="mstrip-item">
+          <span class="mstrip-name">코스닥</span>
+          <span class="mstrip-value" id="ms-kosdaq">—</span>
+          <span class="mstrip-change" id="ms-kosdaq-chg"></span>
+        </div>
+        <span class="mstrip-sep">|</span>
+        <div class="mstrip-item">
+          <span class="mstrip-name">코스피200</span>
+          <span class="mstrip-value" id="ms-kp200">—</span>
+          <span class="mstrip-change" id="ms-kp200-chg"></span>
+        </div>
+        <span class="mstrip-sep">|</span>
+        <div class="mstrip-item">
+          <span class="mstrip-name">원/달러</span>
+          <span class="mstrip-value" id="ms-usd">—</span>
+          <span class="mstrip-change" id="ms-usd-chg"></span>
+        </div>
       </div>
     </div>
 
