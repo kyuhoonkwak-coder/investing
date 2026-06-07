@@ -514,6 +514,7 @@ function handleSearch(): void {
         'Accept-Encoding: identity',
     ];
 
+    $curlErr = '';
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -523,7 +524,8 @@ function handleSearch(): void {
             CURLOPT_SSL_VERIFYHOST => false,
             CURLOPT_HTTPHEADER     => $headers,
         ]);
-        $raw = curl_exec($ch);
+        $raw     = curl_exec($ch);
+        $curlErr = curl_error($ch);
         curl_close($ch);
     } else {
         $opts = [
@@ -539,6 +541,7 @@ function handleSearch(): void {
     }
 
     $results = [];
+    $json    = [];
     if ($raw) {
         $json  = json_decode($raw, true) ?? [];
         $items = $json['items'] ?? [];
@@ -557,6 +560,22 @@ function handleSearch(): void {
                 'market' => $item['typeName'] ?? '',
             ];
         }
+    }
+
+    if (empty($results) && isset($_GET['debug'])) {
+        echo json_encode([
+            'ok'       => true,
+            'data'     => [],
+            '_debug'   => [
+                'curl_used'  => function_exists('curl_init'),
+                'curl_error' => $curlErr,
+                'raw_len'    => strlen((string)$raw),
+                'raw_head'   => substr((string)$raw, 0, 300),
+                'json_keys'  => array_keys($json),
+                'item_count' => count($json['items'] ?? []),
+            ],
+        ]);
+        return;
     }
 
     cacheSet($cacheKey, $results, 300);
