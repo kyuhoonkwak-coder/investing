@@ -1,0 +1,14 @@
+# API 키 / 토큰 (절대 업로드 금지)
+api/config.php
+api/token_cache.json
+api/vts_token_cache.json
+api/cache_*.json
+
+# 에디터 / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# 로그
+*.log

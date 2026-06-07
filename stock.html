@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>종목 상세</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* 종목 상세 페이지 전용 레이아웃 */
+    .stock-page-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+    .stock-back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text2);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      margin-bottom: 20px;
+    }
+    .stock-back-btn:hover { color: var(--text1); }
+    .stock-page-body {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px;
+      align-items: start;
+    }
+    .stock-page-main {}
+    .stock-page-side {}
+    @media (max-width: 900px) {
+      .stock-page-body { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 헤더 -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-left">
+        <a href="/investing/" class="logo">📈 주식투자</a>
+        <nav class="gnav">
+          <a href="/investing/" class="gnav-item">홈</a>
+          <a href="#" class="gnav-item">피드</a>
+          <a href="#" class="gnav-item">주식 골라보기</a>
+          <a href="#" class="gnav-item">내 계좌</a>
+        </nav>
+      </div>
+      <div class="header-right">
+        <button class="btn-login">로그인</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="stock-page-wrap">
+
+      <button class="stock-back-btn" onclick="history.back()">← 뒤로가기</button>
+
+      <!-- 종목 헤더 -->
+      <div id="stockHeader"></div>
+
+      <!-- 통계 바 -->
+      <div class="modal-stats-bar" id="stockStatsBar"></div>
+
+      <div class="stock-page-body">
+        <div class="stock-page-main">
+
+          <!-- 차트 탭 -->
+          <div class="modal-chart-tabs" id="stockChartTabs">
+            <button class="mchart-tab active" data-period="D">일봉</button>
+            <button class="mchart-tab" data-period="W">주봉</button>
+            <button class="mchart-tab" data-period="M">월봉</button>
+          </div>
+          <div id="stockChart"></div>
+
+          <!-- 일자별 시세 -->
+          <div class="modal-section-title" style="margin-top:28px">일자별 시세</div>
+          <div id="stockPriceTable"></div>
+
+          <!-- 투자자 동향 -->
+          <div class="modal-investor-wrap" id="stockInvestorWrap">
+            <div class="modal-section-title">투자자 동향 (당일)</div>
+            <div id="stockInvestor"></div>
+          </div>
+
+        </div>
+
+        <div class="stock-page-side">
+          <!-- AI 분석 카드 -->
+          <div class="sidebar-card" id="aiAnalysisCard">
+            <div class="ai-card-empty">
+              <div class="ai-icon">✦</div>
+              <div>AI 분석 로딩 중…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/stock.js"></script>
+</body>
+</html>
