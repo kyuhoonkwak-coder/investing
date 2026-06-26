@@ -35,6 +35,7 @@ const LOG_FILE         = __DIR__ . '/auto_trade_log.json';
 const LOG_MAX          = 300;      // 보관할 최대 로그 수
 
 $isCli = (php_sapi_name() === 'cli');
+if ($isCli && isset($argv[1])) $_GET['action'] = $argv[1];   // php auto_trade.php candidates
 $dry   = isset($_GET['dry']) && $_GET['dry'] === '1';
 
 /* ───────── 접근 제어 (웹 호출 시) ───────── */
@@ -50,7 +51,8 @@ if (!$isCli) {
 
 /* ───────── 라우팅 ───────── */
 $action = $_GET['action'] ?? 'run';
-if ($action === 'status') { handleStatus(); }   // 현황만 조회 (매매 안 함)
+if ($action === 'status')     { handleStatus(); }      // 현황만 조회 (매매 안 함)
+if ($action === 'candidates') { handleCandidates(); }  // 매수 후보 미리보기 (주문 안 함)
 
 /* ───────── 메인 (매매 실행) ───────── */
 $report = ['ts' => date('Y-m-d H:i:s'), 'dry' => $dry, 'actions' => [], 'errors' => []];
@@ -148,6 +150,47 @@ function handleStatus(): void {
     $log = file_exists(LOG_FILE) ? (json_decode(file_get_contents(LOG_FILE), true) ?? []) : [];
     $out['log'] = array_reverse(array_slice($log, -30));
     finish($out);
+}
+
+/** 매수 후보 미리보기: 필터 통과 종목 + 통과/탈락 사유 (주문·VTS 없음, 실전 시세만) */
+function handleCandidates(): void {
+    $rows = array_slice(fetchVolumeRank(), 0, 50);
+
+    // 저비용 필터 통과 종목
+    $passed = [];
+    foreach ($rows as $s) {
+        if ($s['changePct'] < BUY_PCT_MIN || $s['changePct'] > BUY_PCT_MAX) continue;
+        if ($s['price'] < MIN_PRICE) continue;
+        if (($s['warn'] ?? '00') !== '00') continue;
+        if ($s['marketCap'] > 0 && $s['marketCap'] < MIN_MARKET_CAP) continue;
+        $passed[] = $s;
+    }
+    usort($passed, fn($a, $b) => $b['amount'] <=> $a['amount']);
+
+    // 5일선 확인 (상한 내)
+    $out = [];
+    $checks = 0;
+    foreach ($passed as $s) {
+        if ($checks < MA5_MAX_CHECKS) {
+            $checks++;
+            usleep(250000);
+            $ma5 = fetchMA5($s['code']);
+            $s['ma5']     = $ma5 > 0 ? (int)round($ma5) : 0;
+            $s['ma5pass'] = $ma5 > 0 ? ($s['price'] >= $ma5) : null;
+        } else {
+            $s['ma5'] = 0; $s['ma5pass'] = null;
+        }
+        $out[] = $s;
+    }
+
+    $buyList = array_values(array_filter($out, fn($s) => $s['ma5pass'] === true));
+    finish([
+        'ts'         => date('Y-m-d H:i:s'),
+        'passedCount'=> count($out),
+        'buyCount'   => min(count($buyList), MAX_POSITIONS),
+        'wouldBuy'   => array_slice($buyList, 0, MAX_POSITIONS),
+        'candidates' => $out,
+    ]);
 }
 
 /** 장 운영 시간 체크 (KST 평일 09:00~15:30) */

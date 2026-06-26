@@ -120,6 +120,21 @@
     .btn-run  { background: var(--accent); color: #fff; }
     .btn:disabled { opacity: .5; cursor: default; }
 
+    /* 후보 카드 */
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .card-head .card-title { margin-bottom: 0; }
+    .mini-btn {
+      font-size: 12px; font-weight: 700; color: var(--accent);
+      background: #E8F0FE; border: none; border-radius: 8px;
+      padding: 6px 12px; cursor: pointer; font-family: inherit;
+    }
+    .mini-btn:active { opacity: .7; }
+    .mini-btn:disabled { opacity: .5; }
+    .cand-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; margin-left: 6px; }
+    .cand-buy  { background: #E7F9F1; color: var(--green); }
+    .cand-no   { background: #F2F4F6; color: var(--text3); }
+    .cand-wait { background: #FFF6E5; color: #C98A00; }
+
     .refresh-note { text-align: center; font-size: 11px; color: var(--text3); margin-top: 6px; }
     .spin { display: inline-block; animation: sp 1s linear infinite; }
     @keyframes sp { to { transform: rotate(360deg); } }
@@ -147,6 +162,15 @@
         <div class="rule"><div class="k">최대 보유</div><div class="v">―</div></div>
       </div>
       <div class="filters" id="filters"></div>
+    </div>
+
+    <!-- 매수 후보 -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">매수 후보 <span id="candCount"></span></div>
+        <button class="mini-btn" id="btnCand">후보 불러오기</button>
+      </div>
+      <div id="candidates"><div class="empty">‘후보 불러오기’를 누르면<br>실시간으로 종목을 계산합니다</div></div>
     </div>
 
     <!-- 수동 실행 -->
@@ -202,6 +226,52 @@
       document.getElementById('filters').innerHTML =
         '<span style="font-size:11px;color:var(--text3);width:100%;margin-bottom:2px">품질 필터</span>' +
         chips.map(t => `<span class="chip">${t}</span>`).join('');
+    }
+
+    async function loadCandidates() {
+      const el  = document.getElementById('candidates');
+      const btn = document.getElementById('btnCand');
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin">⏳</span>';
+      el.innerHTML = '<div class="empty">실시간 후보 계산 중…<br><span style="font-size:12px">최대 10초 소요</span></div>';
+      try {
+        renderCandidates(await call({ action: 'candidates' }));
+      } catch (e) {
+        el.innerHTML = `<div class="empty">오류: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    }
+
+    function renderCandidates(d) {
+      const el  = document.getElementById('candidates');
+      const cnt = document.getElementById('candCount');
+      const list = d.candidates || [];
+      cnt.textContent = list.length ? `· 매수대상 ${d.buyCount}종목` : '';
+      if (!list.length) { el.innerHTML = '<div class="empty">조건 충족 종목 없음</div>'; return; }
+      el.innerHTML = list.map(s => {
+        let badge;
+        if (s.ma5pass === true)       badge = '<span class="cand-badge cand-buy">매수 대상</span>';
+        else if (s.ma5pass === false) badge = '<span class="cand-badge cand-no">추세 미달</span>';
+        else                          badge = '<span class="cand-badge cand-wait">미확인</span>';
+        const up = (s.changePct || 0) >= 0;
+        const cap = s.marketCap > 0 ? ` · 시총 ${Math.round(s.marketCap / 1e8).toLocaleString()}억` : '';
+        const ma5 = s.ma5 > 0 ? ` · 5일선 ${won(s.ma5)}` : '';
+        return `
+        <div class="hold-row">
+          <div class="hold-logo">${initial(s.name)}</div>
+          <div class="hold-info">
+            <div class="hold-name">${s.name}${badge}</div>
+            <div class="hold-sub">${s.code} · 거래대금 ${Math.round(s.amount / 1e8).toLocaleString()}억${cap}${ma5}</div>
+          </div>
+          <div class="hold-right">
+            <div class="hold-price">${won(s.price)}원</div>
+            <div class="hold-pnl ${up ? 'pnl-up' : 'pnl-down'}">${pct(s.changePct)}</div>
+          </div>
+        </div>`;
+      }).join('');
     }
 
     function renderHoldings(list, err) {
@@ -304,6 +374,7 @@
 
     document.getElementById('btnDry').addEventListener('click', () => runTrade(true));
     document.getElementById('btnRun').addEventListener('click', () => runTrade(false));
+    document.getElementById('btnCand').addEventListener('click', loadCandidates);
 
     loadStatus();
     setInterval(loadStatus, 30000);   // 30초마다 현황 갱신
