@@ -67,6 +67,27 @@
     }
     .chip b { color: var(--text); font-weight: 700; }
 
+    /* 성과 */
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+    .stat { background: var(--bg); border-radius: 12px; padding: 12px 10px; text-align: center; }
+    .stat .sk { font-size: 11px; color: var(--text3); margin-bottom: 5px; }
+    .stat .sv { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
+    .sv.up { color: var(--up); }
+    .sv.down { color: var(--down); }
+    .trade-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .trade-row:last-child { border-bottom: none; }
+    .trade-row:first-child { border-top: 1px solid var(--border); margin-top: 10px; }
+    .trade-reason { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; flex-shrink: 0; }
+    .tr-win  { background: #FDECEC; color: var(--up); }
+    .tr-lose { background: #E8F0FE; color: var(--down); }
+    .trade-name { flex: 1; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trade-pnl { font-weight: 700; text-align: right; }
+
+    @media (max-width: 480px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
+
     /* 보유 종목 */
     .hold-row {
       display: flex; align-items: center; gap: 12px;
@@ -185,6 +206,18 @@
       <div id="holdings"><div class="empty">불러오는 중…</div></div>
     </div>
 
+    <!-- 성과 -->
+    <div class="card">
+      <div class="card-title">누적 성과</div>
+      <div class="stat-grid" id="statGrid">
+        <div class="stat"><div class="sk">실현 손익</div><div class="sv" id="stPnl">―</div></div>
+        <div class="stat"><div class="sk">승률</div><div class="sv" id="stWin">―</div></div>
+        <div class="stat"><div class="sk">거래 수</div><div class="sv" id="stCnt">―</div></div>
+        <div class="stat"><div class="sk">당일 손익</div><div class="sv" id="stToday">―</div></div>
+      </div>
+      <div id="trades"></div>
+    </div>
+
     <!-- 거래 로그 -->
     <div class="card">
       <div class="card-title">최근 실행 기록</div>
@@ -226,6 +259,9 @@
       if (c.minCap)   chips.push(`시총 <b>${Math.round(c.minCap / 1e8).toLocaleString()}억</b> 이상`);
       if (c.ma5)      chips.push('<b>5일선 위</b> 상승추세');
       chips.push('관리·경고종목 제외');
+      if (c.trail)     chips.push(`<b>트레일링</b> +${c.trail}%↑ 고점반납 시`);
+      if (c.haltPct)   chips.push(`코스피 <b>${c.haltPct}%</b> 급락 시 매수중단`);
+      if (c.lossLimit) chips.push(`당일 <b>-${Math.round(c.lossLimit/1e4)}만</b> 손실 시 매수중단`);
       document.getElementById('filters').innerHTML =
         '<span style="font-size:11px;color:var(--text3);width:100%;margin-bottom:2px">품질 필터</span>' +
         chips.map(t => `<span class="chip">${t}</span>`).join('');
@@ -289,8 +325,9 @@
       cnt.textContent = `${list.length}종목`;
       el.innerHTML = list.map(h => {
         const up = (h.pnlRate || 0) >= 0;
+        const peakTxt = (h.peak != null && h.peak >= 3) ? ` · 고점 +${h.peak}%` : '';
         const exit = (h.tp != null && h.sl != null)
-          ? `<div class="hold-sub" style="margin-top:1px">목표 <span style="color:var(--up)">+${h.tp}%</span> · 손절 <span style="color:var(--down)">${h.sl}%</span></div>`
+          ? `<div class="hold-sub" style="margin-top:1px">목표 <span style="color:var(--up)">+${h.tp}%</span> · 손절 <span style="color:var(--down)">${h.sl}%</span>${peakTxt}</div>`
           : '';
         return `
         <div class="hold-row">
@@ -350,11 +387,37 @@
         </div>`;
     }
 
+    function renderStats(s, trades) {
+      if (!s) return;
+      const setPnl = (id, v, withSign) => {
+        const el = document.getElementById(id);
+        el.textContent = (v > 0 && withSign ? '+' : '') + won(v) + '원';
+        el.className = 'sv ' + (v > 0 ? 'up' : v < 0 ? 'down' : '');
+      };
+      setPnl('stPnl', s.totalPnl, true);
+      setPnl('stToday', s.todayPnl, true);
+      document.getElementById('stWin').textContent = s.trades ? `${s.winRate}%` : '―';
+      document.getElementById('stCnt').textContent = `${s.trades}회`;
+
+      const el = document.getElementById('trades');
+      if (!trades || !trades.length) { el.innerHTML = ''; return; }
+      el.innerHTML = trades.map(t => {
+        const win = (t.pnlKrw || 0) >= 0;
+        return `
+        <div class="trade-row">
+          <span class="trade-reason ${win ? 'tr-win' : 'tr-lose'}">${t.reason}</span>
+          <span class="trade-name">${t.name || t.code}</span>
+          <span class="trade-pnl ${win ? 'pnl-up' : 'pnl-down'}">${pct(t.pnlRate)} · ${win ? '+' : ''}${won(t.pnlKrw)}원</span>
+        </div>`;
+      }).join('');
+    }
+
     async function loadStatus() {
       try {
         const d = await call({ action: 'status' });
         renderRules(d.config);
         renderHoldings(d.holdings, d.holdingsError);
+        renderStats(d.stats, d.trades);
         renderLog(d.log);
         const badge = document.getElementById('marketBadge');
         badge.textContent = d.marketOpen ? '장중' : '장 마감';

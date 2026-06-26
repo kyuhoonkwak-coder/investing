@@ -5,6 +5,7 @@ api/vts_token_cache.json
 api/cache_*.json
 api/auto_trade_log.json
 api/positions.json
+api/trades.json
 
 # 에디터 / OS
 .vscode/
