@@ -212,9 +212,12 @@
 
     function renderRules(c) {
       if (!c) return;
+      const sellTxt = c.dynamic
+        ? `변동성 기반 (익절 ${c.tpMin}~${c.tpMax}% / 손절 ${c.slMin}~${c.slMax}%)`
+        : `+${c.tp}% 익절 / ${c.sl}% 손절`;
       document.getElementById('rules').innerHTML = `
         <div class="rule"><div class="k">매수 조건</div><div class="v buy">전일대비 +${c.buyMin}~+${c.buyMax}%</div></div>
-        <div class="rule"><div class="k">매도 조건</div><div class="v sell">+${c.tp}% 익절 / ${c.sl}% 손절</div></div>
+        <div class="rule"><div class="k">매도 조건</div><div class="v sell">${sellTxt}</div></div>
         <div class="rule"><div class="k">종목당 예산</div><div class="v">${won(c.budget)}원</div></div>
         <div class="rule"><div class="k">최대 보유</div><div class="v">${c.maxPos}종목</div></div>`;
 
@@ -259,12 +262,16 @@
         const up = (s.changePct || 0) >= 0;
         const cap = s.marketCap > 0 ? ` · 시총 ${Math.round(s.marketCap / 1e8).toLocaleString()}억` : '';
         const ma5 = s.ma5 > 0 ? ` · 5일선 ${won(s.ma5)}` : '';
+        const exit = (s.ma5pass === true && s.tp != null)
+          ? `<div class="hold-sub" style="margin-top:1px">변동성 ${s.atrPct}% → 목표 <span style="color:var(--up)">+${s.tp}%</span> · 손절 <span style="color:var(--down)">${s.sl}%</span></div>`
+          : '';
         return `
         <div class="hold-row">
           <div class="hold-logo">${initial(s.name)}</div>
           <div class="hold-info">
             <div class="hold-name">${s.name}${badge}</div>
             <div class="hold-sub">${s.code} · 거래대금 ${Math.round(s.amount / 1e8).toLocaleString()}억${cap}${ma5}</div>
+            ${exit}
           </div>
           <div class="hold-right">
             <div class="hold-price">${won(s.price)}원</div>
@@ -282,12 +289,16 @@
       cnt.textContent = `${list.length}종목`;
       el.innerHTML = list.map(h => {
         const up = (h.pnlRate || 0) >= 0;
+        const exit = (h.tp != null && h.sl != null)
+          ? `<div class="hold-sub" style="margin-top:1px">목표 <span style="color:var(--up)">+${h.tp}%</span> · 손절 <span style="color:var(--down)">${h.sl}%</span></div>`
+          : '';
         return `
         <div class="hold-row">
           <div class="hold-logo">${initial(h.name)}</div>
           <div class="hold-info">
             <div class="hold-name">${h.name || h.code}</div>
             <div class="hold-sub">${h.qty}주 · 평균 ${won(Math.round(h.avgPrice))}원</div>
+            ${exit}
           </div>
           <div class="hold-right">
             <div class="hold-price">${won(h.curPrice)}원</div>

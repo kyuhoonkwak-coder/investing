@@ -22,8 +22,20 @@ const BUDGET_PER_STOCK = 10000000; // 1종목당 매수 예산(원)
 const MAX_POSITIONS    = 5;        // 최대 동시 보유 종목 수
 const BUY_PCT_MIN      = 1.0;      // 매수 하한 등락률(%)
 const BUY_PCT_MAX      = 4.0;      // 매수 상한 등락률(%)
-const TAKE_PROFIT_PCT  = 5.0;      // 익절 기준(%)
-const STOP_LOSS_PCT    = -3.0;     // 손절 기준(%)
+/* ── 종목별 동적 익절/손절 (변동성 ATR 기반) ── */
+const TP_ATR_MULT      = 2.0;      // 익절 = ATR% × 2.0
+const SL_ATR_MULT      = 1.5;      // 손절 = ATR% × 1.5
+const TP_MIN           = 3.0;      // 익절 하한(%)
+const TP_MAX           = 12.0;     // 익절 상한(%)
+const SL_MIN           = 2.0;      // 손절 하한(%)
+const SL_MAX           = 7.0;      // 손절 상한(%)
+const ATR_DAYS         = 10;       // 변동성 산출 일수
+
+/* 변동성 데이터가 없을 때 사용할 기본 익절/손절(%) */
+const TAKE_PROFIT_PCT  = 5.0;
+const STOP_LOSS_PCT    = -3.0;
+
+const POS_FILE         = __DIR__ . '/positions.json';  // 종목별 목표가/손절가 저장
 
 /* ── 품질 필터 (잡주 회피 + 추세 확인) ── */
 const MIN_PRICE        = 2000;            // 최소 주가(원) — 동전주 제외
@@ -67,19 +79,25 @@ try {
     $holdings = fetchHoldings();             // [code => ['qty','avgPrice','curPrice','pnlRate','name']]
     $report['holdings_count'] = count($holdings);
 
-    // 2) 매도 판단 (익절/손절)
+    $positions = loadPositions();            // [code => ['tp','sl','atrPct',...]]
+    $positions = prunePositions($positions, array_keys($holdings));  // 미보유 종목 정리
+
+    // 2) 매도 판단 (종목별 동적 익절/손절)
     foreach ($holdings as $code => $h) {
         $rate = $h['pnlRate'];
-        if ($rate >= TAKE_PROFIT_PCT || $rate <= STOP_LOSS_PCT) {
-            $reason = $rate >= TAKE_PROFIT_PCT ? '익절' : '손절';
+        $tp   = $positions[$code]['tp'] ?? TAKE_PROFIT_PCT;   // 저장된 종목별 기준, 없으면 기본값
+        $sl   = $positions[$code]['sl'] ?? STOP_LOSS_PCT;
+        if ($rate >= $tp || $rate <= $sl) {
+            $reason = $rate >= $tp ? '익절' : '손절';
             $res = $dry
                 ? ['dry' => true]
                 : placeOrder($code, 'sell', 'market', (int)$h['qty'], 0);
             $report['actions'][] = [
                 'type' => 'SELL', 'reason' => $reason, 'code' => $code,
                 'name' => $h['name'], 'qty' => (int)$h['qty'],
-                'pnlRate' => $rate, 'result' => $res,
+                'pnlRate' => $rate, 'tp' => $tp, 'sl' => $sl, 'result' => $res,
             ];
+            if (!$dry && ($res['ok'] ?? false)) unset($positions[$code]);
         }
     }
 
@@ -104,13 +122,27 @@ try {
             $report['actions'][] = [
                 'type' => 'BUY', 'reason' => '모멘텀', 'code' => $c['code'],
                 'name' => $c['name'], 'qty' => $qty, 'price' => $price,
-                'changePct' => $c['changePct'], 'result' => $res,
+                'changePct' => $c['changePct'],
+                'tp' => $c['tp'] ?? null, 'sl' => $c['sl'] ?? null, 'atrPct' => $c['atrPct'] ?? null,
+                'result' => $res,
             ];
+            // 매수 성공 시 종목별 목표가/손절가 저장
+            if (!$dry && ($res['ok'] ?? false)) {
+                $positions[$c['code']] = [
+                    'tp'         => $c['tp']     ?? TAKE_PROFIT_PCT,
+                    'sl'         => $c['sl']     ?? STOP_LOSS_PCT,
+                    'atrPct'     => $c['atrPct'] ?? null,
+                    'entryPrice' => $price,
+                    'entryTs'    => date('Y-m-d H:i:s'),
+                ];
+            }
             $slots--;
         }
     }
 
     if (empty($report['actions'])) $report['actions'][] = ['type' => 'HOLD', 'msg' => '조건 충족 종목 없음'];
+
+    savePositions($positions);
 
 } catch (Throwable $e) {
     $report['errors'][] = $e->getMessage();
@@ -131,17 +163,23 @@ function handleStatus(): void {
             'maxPos'   => MAX_POSITIONS,
             'buyMin'   => BUY_PCT_MIN,
             'buyMax'   => BUY_PCT_MAX,
-            'tp'       => TAKE_PROFIT_PCT,
-            'sl'       => STOP_LOSS_PCT,
+            'dynamic'  => true,
+            'tpMin'    => TP_MIN, 'tpMax' => TP_MAX,
+            'slMin'    => SL_MIN, 'slMax' => SL_MAX,
             'minPrice' => MIN_PRICE,
             'minCap'   => MIN_MARKET_CAP,
             'ma5'      => REQUIRE_ABOVE_MA5,
         ],
     ];
     try {
-        $holdings = fetchHoldings();
+        $holdings  = fetchHoldings();
+        $positions = loadPositions();
         $list = [];
-        foreach ($holdings as $code => $h) $list[] = ['code' => $code] + $h;
+        foreach ($holdings as $code => $h) {
+            $h['tp'] = $positions[$code]['tp'] ?? TAKE_PROFIT_PCT;
+            $h['sl'] = $positions[$code]['sl'] ?? STOP_LOSS_PCT;
+            $list[] = ['code' => $code] + $h;
+        }
         $out['holdings'] = $list;
     } catch (Throwable $e) {
         $out['holdings']      = [];
@@ -167,16 +205,21 @@ function handleCandidates(): void {
     }
     usort($passed, fn($a, $b) => $b['amount'] <=> $a['amount']);
 
-    // 5일선 확인 (상한 내)
+    // 5일선 확인 + 종목별 변동성 익절/손절 (상한 내)
     $out = [];
     $checks = 0;
     foreach ($passed as $s) {
         if ($checks < MA5_MAX_CHECKS) {
             $checks++;
             usleep(250000);
-            $ma5 = fetchMA5($s['code']);
+            $candles = fetchDaily($s['code']);
+            $ma5  = computeMA5($candles);
+            $plan = planTpSl(computeATRpct($candles));
             $s['ma5']     = $ma5 > 0 ? (int)round($ma5) : 0;
             $s['ma5pass'] = $ma5 > 0 ? ($s['price'] >= $ma5) : null;
+            $s['atrPct']  = $plan['atrPct'];
+            $s['tp']      = $plan['tp'];
+            $s['sl']      = $plan['sl'];
         } else {
             $s['ma5'] = 0; $s['ma5pass'] = null;
         }
@@ -269,8 +312,10 @@ function pickBuyCandidates(array $heldCodes): array {
     // 3) 거래대금 많은 순 — 실거래 활발한 종목 우선
     usort($cand, fn($a, $b) => $b['amount'] <=> $a['amount']);
 
-    // 4) 5일선 위 종목만 통과 (상승추세). 슬롯이 차거나 호출 상한 도달 시 중단
-    if (!REQUIRE_ABOVE_MA5) return $cand;
+    // 4) 5일선 위 종목만 통과 + 종목별 변동성 기반 익절/손절 산출
+    if (!REQUIRE_ABOVE_MA5) {
+        return array_map(function ($s) { return $s + planTpSl(0); }, $cand);
+    }
 
     $final  = [];
     $checks = 0;
@@ -278,10 +323,16 @@ function pickBuyCandidates(array $heldCodes): array {
         if ($checks >= MA5_MAX_CHECKS || count($final) >= MAX_POSITIONS) break;
         $checks++;
         usleep(250000);                       // rate limit 방지
-        $ma5 = fetchMA5($s['code']);
+        $candles = fetchDaily($s['code']);
+        $ma5 = computeMA5($candles);
         if ($ma5 > 0 && $s['price'] >= $ma5) {
-            $s['ma5'] = (int)round($ma5);
-            $final[]  = $s;
+            $atr  = computeATRpct($candles);
+            $plan = planTpSl($atr);
+            $s['ma5']    = (int)round($ma5);
+            $s['atrPct'] = round($atr, 2);
+            $s['tp']     = $plan['tp'];
+            $s['sl']     = $plan['sl'];
+            $final[]     = $s;
         }
     }
     return $final;
@@ -335,12 +386,12 @@ function fetchVolumeRank(): array {
     return $rows;
 }
 
-/** 5일 이동평균선 (일봉 종가 5개 평균) */
-function fetchMA5(string $code): float {
+/** 일봉 데이터 조회 (최신→과거 순) — MA5·변동성 계산용 */
+function fetchDaily(string $code): array {
     $params = [
         'FID_COND_MRKT_DIV_CODE' => 'J',
         'FID_INPUT_ISCD'         => $code,
-        'FID_INPUT_DATE_1'       => date('Ymd', strtotime('-15 days')),
+        'FID_INPUT_DATE_1'       => date('Ymd', strtotime('-30 days')),
         'FID_INPUT_DATE_2'       => date('Ymd'),
         'FID_PERIOD_DIV_CODE'    => 'D',
         'FID_ORG_ADJ_PRC'        => '0',
@@ -348,13 +399,55 @@ function fetchMA5(string $code): float {
     $raw = kisHttp('GET', KIS_BASE_URL . '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
         $params, '', realHeaders(realToken(), 'FHKST03010100'));
     $d = json_decode($raw, true) ?? [];
+    return $d['output2'] ?? [];
+}
+
+/** 5일 이동평균선 (일봉 종가 5개 평균) */
+function computeMA5(array $candles): float {
     $closes = [];
-    foreach (($d['output2'] ?? []) as $c) {          // 최신→과거 순
+    foreach ($candles as $c) {
         $v = (int)($c['stck_clpr'] ?? 0);
         if ($v > 0) $closes[] = $v;
         if (count($closes) >= 5) break;
     }
     return count($closes) >= 5 ? array_sum($closes) / 5 : 0.0;
+}
+
+/** 변동성 ATR% = 최근 ATR_DAYS일 평균 일중 변동폭(고가-저가)/종가 (%) */
+function computeATRpct(array $candles): float {
+    $ranges = [];
+    foreach ($candles as $c) {
+        $hi = (int)($c['stck_hgpr'] ?? 0);
+        $lo = (int)($c['stck_lwpr'] ?? 0);
+        $cl = (int)($c['stck_clpr'] ?? 0);
+        if ($hi > 0 && $lo > 0 && $cl > 0) $ranges[] = ($hi - $lo) / $cl * 100;
+        if (count($ranges) >= ATR_DAYS) break;
+    }
+    return $ranges ? array_sum($ranges) / count($ranges) : 0.0;
+}
+
+/** 변동성 → 종목별 익절/손절(%) (상·하한 적용) */
+function planTpSl(float $atrPct): array {
+    if ($atrPct <= 0) return ['tp' => TAKE_PROFIT_PCT, 'sl' => STOP_LOSS_PCT, 'atrPct' => 0.0];
+    $tp = min(TP_MAX, max(TP_MIN, $atrPct * TP_ATR_MULT));
+    $sl = -min(SL_MAX, max(SL_MIN, $atrPct * SL_ATR_MULT));
+    return ['tp' => round($tp, 1), 'sl' => round($sl, 1), 'atrPct' => round($atrPct, 2)];
+}
+
+/* ───────── 종목별 목표가/손절가 저장 ───────── */
+function loadPositions(): array {
+    if (!file_exists(POS_FILE)) return [];
+    return json_decode(file_get_contents(POS_FILE), true) ?? [];
+}
+function savePositions(array $pos): void {
+    file_put_contents(POS_FILE, json_encode($pos, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+}
+/** 더 이상 보유하지 않는 종목 기록 제거 */
+function prunePositions(array $pos, array $heldCodes): array {
+    foreach (array_keys($pos) as $code) {
+        if (!in_array($code, $heldCodes, true)) unset($pos[$code]);
+    }
+    return $pos;
 }
 
 /** 주문 실행 (VTS) */
