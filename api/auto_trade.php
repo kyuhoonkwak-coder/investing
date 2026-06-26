@@ -24,6 +24,13 @@ const BUY_PCT_MIN      = 1.0;      // 매수 하한 등락률(%)
 const BUY_PCT_MAX      = 4.0;      // 매수 상한 등락률(%)
 const TAKE_PROFIT_PCT  = 5.0;      // 익절 기준(%)
 const STOP_LOSS_PCT    = -3.0;     // 손절 기준(%)
+
+/* ── 품질 필터 (잡주 회피 + 추세 확인) ── */
+const MIN_PRICE        = 2000;            // 최소 주가(원) — 동전주 제외
+const MIN_MARKET_CAP   = 300000000000;    // 최소 시가총액 3,000억 — 소형 잡주 제외
+const REQUIRE_ABOVE_MA5 = true;           // 5일 이동평균선 위 종목만 매수(상승추세)
+const MA5_MAX_CHECKS   = 15;              // 5일선 확인 API 호출 상한(과도한 호출 방지)
+
 const LOG_FILE         = __DIR__ . '/auto_trade_log.json';
 const LOG_MAX          = 300;      // 보관할 최대 로그 수
 
@@ -118,12 +125,15 @@ function handleStatus(): void {
         'ts'         => date('Y-m-d H:i:s'),
         'marketOpen' => isMarketOpen(),
         'config'     => [
-            'budget' => BUDGET_PER_STOCK,
-            'maxPos' => MAX_POSITIONS,
-            'buyMin' => BUY_PCT_MIN,
-            'buyMax' => BUY_PCT_MAX,
-            'tp'     => TAKE_PROFIT_PCT,
-            'sl'     => STOP_LOSS_PCT,
+            'budget'   => BUDGET_PER_STOCK,
+            'maxPos'   => MAX_POSITIONS,
+            'buyMin'   => BUY_PCT_MIN,
+            'buyMax'   => BUY_PCT_MAX,
+            'tp'       => TAKE_PROFIT_PCT,
+            'sl'       => STOP_LOSS_PCT,
+            'minPrice' => MIN_PRICE,
+            'minCap'   => MIN_MARKET_CAP,
+            'ma5'      => REQUIRE_ABOVE_MA5,
         ],
     ];
     try {
@@ -190,21 +200,48 @@ function fetchHoldings(): array {
     return $holdings;
 }
 
-/** 매수 후보 선정: 거래량 상위 50 중 +1%~+4% 상승 (보유 종목 제외) */
+/**
+ * 매수 후보 선정 (다단계 품질 필터)
+ *   1) 거래량 상위 50 풀
+ *   2) 등락률 +1~+4% / 보유중복 제외 / 최소주가 / 시가총액 / 관리·경고종목 제외
+ *   3) 거래대금 많은 순 정렬 (유동성 우량 우선)
+ *   4) 5일선 위 종목만 (상승추세 확인) — 호출 상한 내에서
+ */
 function pickBuyCandidates(array $heldCodes): array {
     $rows = fetchVolumeRank();
     $rows = array_slice($rows, 0, 50);
 
+    // 2) 저비용 필터
     $cand = [];
     foreach ($rows as $s) {
         $pct = $s['changePct'];
-        if ($pct < BUY_PCT_MIN || $pct > BUY_PCT_MAX) continue;
-        if (in_array($s['code'], $heldCodes, true)) continue;
+        if ($pct < BUY_PCT_MIN || $pct > BUY_PCT_MAX) continue;       // 모멘텀 구간
+        if (in_array($s['code'], $heldCodes, true))    continue;       // 보유 중복
+        if ($s['price'] < MIN_PRICE)                   continue;       // 동전주 제외
+        if (($s['warn'] ?? '00') !== '00')             continue;       // 관리/경고/위험 제외
+        if ($s['marketCap'] > 0 && $s['marketCap'] < MIN_MARKET_CAP) continue; // 소형 잡주 제외
         $cand[] = $s;
     }
-    // 등락률 낮은 순(=막 오르기 시작한 종목 우선) — 과열 회피
-    usort($cand, fn($a, $b) => $a['changePct'] <=> $b['changePct']);
-    return $cand;
+
+    // 3) 거래대금 많은 순 — 실거래 활발한 종목 우선
+    usort($cand, fn($a, $b) => $b['amount'] <=> $a['amount']);
+
+    // 4) 5일선 위 종목만 통과 (상승추세). 슬롯이 차거나 호출 상한 도달 시 중단
+    if (!REQUIRE_ABOVE_MA5) return $cand;
+
+    $final  = [];
+    $checks = 0;
+    foreach ($cand as $s) {
+        if ($checks >= MA5_MAX_CHECKS || count($final) >= MAX_POSITIONS) break;
+        $checks++;
+        usleep(250000);                       // rate limit 방지
+        $ma5 = fetchMA5($s['code']);
+        if ($ma5 > 0 && $s['price'] >= $ma5) {
+            $s['ma5'] = (int)round($ma5);
+            $final[]  = $s;
+        }
+    }
+    return $final;
 }
 
 /** 거래량 순위 (실전 시세 API, FHPST01710000) — 코스피+코스닥 */
@@ -237,16 +274,44 @@ function fetchVolumeRank(): array {
         $code = $it['mksc_shrn_iscd'] ?? '';
         if (!$code || isset($seen[$code])) continue;
         $seen[$code] = true;
+        $price  = (int)($it['stck_prpr'] ?? 0);
+        $volume = (int)($it['acml_vol'] ?? 0);
+        $shares = (int)($it['lstn_stcn'] ?? 0);         // 상장주수
         $rows[] = [
             'code'      => $code,
             'name'      => $it['hts_kor_isnm'] ?? '',
-            'price'     => (int)($it['stck_prpr'] ?? 0),
+            'price'     => $price,
             'changePct' => (float)($it['prdy_ctrt'] ?? 0),
-            'volume'    => (int)($it['acml_vol'] ?? 0),
+            'volume'    => $volume,
+            'amount'    => (int)($it['acml_tr_pbmn'] ?? ($price * $volume)),  // 거래대금
+            'marketCap' => $shares > 0 ? ($shares * $price) : 0,             // 시가총액
+            'warn'      => $it['mrkt_warn_cls_code'] ?? '00',               // 시장경고(00=정상)
         ];
     }
     usort($rows, fn($a, $b) => $b['volume'] <=> $a['volume']);
     return $rows;
+}
+
+/** 5일 이동평균선 (일봉 종가 5개 평균) */
+function fetchMA5(string $code): float {
+    $params = [
+        'FID_COND_MRKT_DIV_CODE' => 'J',
+        'FID_INPUT_ISCD'         => $code,
+        'FID_INPUT_DATE_1'       => date('Ymd', strtotime('-15 days')),
+        'FID_INPUT_DATE_2'       => date('Ymd'),
+        'FID_PERIOD_DIV_CODE'    => 'D',
+        'FID_ORG_ADJ_PRC'        => '0',
+    ];
+    $raw = kisHttp('GET', KIS_BASE_URL . '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+        $params, '', realHeaders(realToken(), 'FHKST03010100'));
+    $d = json_decode($raw, true) ?? [];
+    $closes = [];
+    foreach (($d['output2'] ?? []) as $c) {          // 최신→과거 순
+        $v = (int)($c['stck_clpr'] ?? 0);
+        if ($v > 0) $closes[] = $v;
+        if (count($closes) >= 5) break;
+    }
+    return count($closes) >= 5 ? array_sum($closes) / 5 : 0.0;
 }
 
 /** 주문 실행 (VTS) */

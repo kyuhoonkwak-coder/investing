@@ -58,6 +58,15 @@
     .rule .v.buy  { color: var(--up); }
     .rule .v.sell { color: var(--down); }
 
+    /* 품질 필터 칩 */
+    .filters { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+    .filters:empty { display: none; }
+    .chip {
+      font-size: 12px; font-weight: 600; color: var(--text2);
+      background: var(--bg); border-radius: 999px; padding: 6px 12px;
+    }
+    .chip b { color: var(--text); font-weight: 700; }
+
     /* 보유 종목 */
     .hold-row {
       display: flex; align-items: center; gap: 12px;
@@ -137,6 +146,7 @@
         <div class="rule"><div class="k">종목당 예산</div><div class="v">―</div></div>
         <div class="rule"><div class="k">최대 보유</div><div class="v">―</div></div>
       </div>
+      <div class="filters" id="filters"></div>
     </div>
 
     <!-- 수동 실행 -->
@@ -183,6 +193,15 @@
         <div class="rule"><div class="k">매도 조건</div><div class="v sell">+${c.tp}% 익절 / ${c.sl}% 손절</div></div>
         <div class="rule"><div class="k">종목당 예산</div><div class="v">${won(c.budget)}원</div></div>
         <div class="rule"><div class="k">최대 보유</div><div class="v">${c.maxPos}종목</div></div>`;
+
+      const chips = ['거래량·거래대금 상위'];
+      if (c.minPrice) chips.push(`주가 <b>${won(c.minPrice)}원</b> 이상`);
+      if (c.minCap)   chips.push(`시총 <b>${Math.round(c.minCap / 1e8).toLocaleString()}억</b> 이상`);
+      if (c.ma5)      chips.push('<b>5일선 위</b> 상승추세');
+      chips.push('관리·경고종목 제외');
+      document.getElementById('filters').innerHTML =
+        '<span style="font-size:11px;color:var(--text3);width:100%;margin-bottom:2px">품질 필터</span>' +
+        chips.map(t => `<span class="chip">${t}</span>`).join('');
     }
 
     function renderHoldings(list, err) {
