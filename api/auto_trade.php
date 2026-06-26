@@ -41,7 +41,11 @@ if (!$isCli) {
     }
 }
 
-/* ───────── 메인 ───────── */
+/* ───────── 라우팅 ───────── */
+$action = $_GET['action'] ?? 'run';
+if ($action === 'status') { handleStatus(); }   // 현황만 조회 (매매 안 함)
+
+/* ───────── 메인 (매매 실행) ───────── */
 $report = ['ts' => date('Y-m-d H:i:s'), 'dry' => $dry, 'actions' => [], 'errors' => []];
 
 try {
@@ -107,6 +111,34 @@ writeLog($report);
 finish($report);
 
 /* ═════════ 함수 ═════════ */
+
+/** 현황 조회: 보유 종목 + 최근 로그 + 전략 설정 (매매 안 함) */
+function handleStatus(): void {
+    $out = [
+        'ts'         => date('Y-m-d H:i:s'),
+        'marketOpen' => isMarketOpen(),
+        'config'     => [
+            'budget' => BUDGET_PER_STOCK,
+            'maxPos' => MAX_POSITIONS,
+            'buyMin' => BUY_PCT_MIN,
+            'buyMax' => BUY_PCT_MAX,
+            'tp'     => TAKE_PROFIT_PCT,
+            'sl'     => STOP_LOSS_PCT,
+        ],
+    ];
+    try {
+        $holdings = fetchHoldings();
+        $list = [];
+        foreach ($holdings as $code => $h) $list[] = ['code' => $code] + $h;
+        $out['holdings'] = $list;
+    } catch (Throwable $e) {
+        $out['holdings']      = [];
+        $out['holdingsError'] = $e->getMessage();
+    }
+    $log = file_exists(LOG_FILE) ? (json_decode(file_get_contents(LOG_FILE), true) ?? []) : [];
+    $out['log'] = array_reverse(array_slice($log, -30));
+    finish($out);
+}
 
 /** 장 운영 시간 체크 (KST 평일 09:00~15:30) */
 function isMarketOpen(): bool {

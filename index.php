@@ -1,0 +1,293 @@
+<?php require_once __DIR__ . '/api/config.php'; ?>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>자동매매 봇</title>
+  <style>
+    :root {
+      --bg:      #F2F4F6;
+      --card:    #ffffff;
+      --border:  #E5E8EB;
+      --text:    #191F28;
+      --text2:   #4E5968;
+      --text3:   #8B95A1;
+      --accent:  #3182F6;
+      --up:      #F04452;   /* 상승/매수 = 빨강 */
+      --down:    #3182F6;   /* 하락/매도 = 파랑 */
+      --green:   #1BC47D;
+      --radius:  16px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 40px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+
+    /* 헤더 */
+    .top {
+      padding: 24px 0 18px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .top h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+    .badge {
+      font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px;
+    }
+    .badge.open  { background: #E7F9F1; color: var(--green); }
+    .badge.close { background: #F2F4F6; color: var(--text3); }
+
+    /* 카드 공통 */
+    .card {
+      background: var(--card); border-radius: var(--radius);
+      padding: 20px; margin-bottom: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .card-title { font-size: 13px; font-weight: 700; color: var(--text3); margin-bottom: 14px; letter-spacing: -0.2px; }
+
+    /* 전략 요약 */
+    .rules { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .rule { background: var(--bg); border-radius: 12px; padding: 13px 14px; }
+    .rule .k { font-size: 11px; color: var(--text3); margin-bottom: 5px; }
+    .rule .v { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .rule .v.buy  { color: var(--up); }
+    .rule .v.sell { color: var(--down); }
+
+    /* 보유 종목 */
+    .hold-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 0; border-bottom: 1px solid var(--border);
+    }
+    .hold-row:last-child { border-bottom: none; }
+    .hold-logo {
+      width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 800; background: #EEF3FB; color: var(--accent);
+    }
+    .hold-info { flex: 1; min-width: 0; }
+    .hold-name { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .hold-sub { font-size: 12px; color: var(--text3); margin-top: 2px; }
+    .hold-right { text-align: right; }
+    .hold-price { font-size: 15px; font-weight: 700; }
+    .hold-pnl { font-size: 13px; font-weight: 700; margin-top: 2px; }
+    .pnl-up { color: var(--up); }
+    .pnl-down { color: var(--down); }
+
+    .empty { text-align: center; color: var(--text3); font-size: 14px; padding: 28px 0; }
+
+    /* 로그 타임라인 */
+    .log-row {
+      display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border);
+    }
+    .log-row:last-child { border-bottom: none; }
+    .log-tag {
+      flex-shrink: 0; width: 46px; height: 24px; border-radius: 7px;
+      font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+    }
+    .tag-buy  { background: #FDECEC; color: var(--up); }
+    .tag-sell { background: #E8F0FE; color: var(--down); }
+    .tag-hold { background: #F2F4F6; color: var(--text3); }
+    .tag-skip { background: #FFF6E5; color: #C98A00; }
+    .log-body { flex: 1; min-width: 0; }
+    .log-main { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
+    .log-time { font-size: 11px; color: var(--text3); margin-top: 3px; }
+    .log-res { font-size: 12px; color: var(--text2); margin-top: 3px; }
+    .log-res.fail { color: var(--up); }
+
+    /* 버튼 */
+    .actions { display: flex; gap: 10px; margin-bottom: 14px; }
+    .btn {
+      flex: 1; padding: 14px; border: none; border-radius: 13px;
+      font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+      font-family: inherit;
+    }
+    .btn:active { opacity: .7; }
+    .btn-dry  { background: #E8F0FE; color: var(--accent); }
+    .btn-run  { background: var(--accent); color: #fff; }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    .refresh-note { text-align: center; font-size: 11px; color: var(--text3); margin-top: 6px; }
+    .spin { display: inline-block; animation: sp 1s linear infinite; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+
+    @media (max-width: 480px) {
+      .rules { grid-template-columns: 1fr; }
+      .top h1 { font-size: 19px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>🤖 자동매매 봇</h1>
+      <span id="marketBadge" class="badge close">―</span>
+    </div>
+
+    <!-- 전략 -->
+    <div class="card">
+      <div class="card-title">전략 (모의투자)</div>
+      <div class="rules" id="rules">
+        <div class="rule"><div class="k">매수 조건</div><div class="v buy">―</div></div>
+        <div class="rule"><div class="k">매도 조건</div><div class="v sell">―</div></div>
+        <div class="rule"><div class="k">종목당 예산</div><div class="v">―</div></div>
+        <div class="rule"><div class="k">최대 보유</div><div class="v">―</div></div>
+      </div>
+    </div>
+
+    <!-- 수동 실행 -->
+    <div class="actions">
+      <button class="btn btn-dry" id="btnDry">시뮬레이션 실행</button>
+      <button class="btn btn-run" id="btnRun">지금 매매 실행</button>
+    </div>
+
+    <!-- 보유 종목 -->
+    <div class="card">
+      <div class="card-title">보유 종목 <span id="holdCount"></span></div>
+      <div id="holdings"><div class="empty">불러오는 중…</div></div>
+    </div>
+
+    <!-- 거래 로그 -->
+    <div class="card">
+      <div class="card-title">최근 실행 기록</div>
+      <div id="log"><div class="empty">불러오는 중…</div></div>
+    </div>
+
+    <div class="refresh-note" id="lastTs">―</div>
+  </div>
+
+  <script>
+    const API = '/investing/api/auto_trade.php';
+    const KEY = '<?= AUTO_TRADE_SECRET ?>';
+
+    const won = n => Number(n || 0).toLocaleString('ko-KR');
+    const pct = n => (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%';
+    const initial = s => (s || '?').slice(0, 1);
+
+    async function call(params) {
+      const url = `${API}?key=${KEY}&` + new URLSearchParams(params);
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.msg || '오류');
+      return json.data;
+    }
+
+    function renderRules(c) {
+      if (!c) return;
+      document.getElementById('rules').innerHTML = `
+        <div class="rule"><div class="k">매수 조건</div><div class="v buy">전일대비 +${c.buyMin}~+${c.buyMax}%</div></div>
+        <div class="rule"><div class="k">매도 조건</div><div class="v sell">+${c.tp}% 익절 / ${c.sl}% 손절</div></div>
+        <div class="rule"><div class="k">종목당 예산</div><div class="v">${won(c.budget)}원</div></div>
+        <div class="rule"><div class="k">최대 보유</div><div class="v">${c.maxPos}종목</div></div>`;
+    }
+
+    function renderHoldings(list, err) {
+      const el = document.getElementById('holdings');
+      const cnt = document.getElementById('holdCount');
+      if (err) { el.innerHTML = `<div class="empty">잔고 조회 오류<br><span style="font-size:12px">${err}</span></div>`; cnt.textContent=''; return; }
+      if (!list || !list.length) { el.innerHTML = '<div class="empty">보유 종목 없음</div>'; cnt.textContent=''; return; }
+      cnt.textContent = `${list.length}종목`;
+      el.innerHTML = list.map(h => {
+        const up = (h.pnlRate || 0) >= 0;
+        return `
+        <div class="hold-row">
+          <div class="hold-logo">${initial(h.name)}</div>
+          <div class="hold-info">
+            <div class="hold-name">${h.name || h.code}</div>
+            <div class="hold-sub">${h.qty}주 · 평균 ${won(Math.round(h.avgPrice))}원</div>
+          </div>
+          <div class="hold-right">
+            <div class="hold-price">${won(h.curPrice)}원</div>
+            <div class="hold-pnl ${up ? 'pnl-up' : 'pnl-down'}">${pct(h.pnlRate)}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderLog(log) {
+      const el = document.getElementById('log');
+      if (!log || !log.length) { el.innerHTML = '<div class="empty">실행 기록 없음</div>'; return; }
+      const rows = [];
+      log.forEach(entry => {
+        const ts = entry.ts || '';
+        const dry = entry.dry ? ' (시뮬)' : '';
+        if (entry.skipped) {
+          rows.push(logRow('SKIP', entry.skipped, ts + dry, ''));
+          return;
+        }
+        (entry.actions || []).forEach(a => {
+          if (a.type === 'BUY') {
+            const r = a.result || {};
+            const res = r.dry ? '시뮬레이션' : (r.ok ? `주문 #${r.ordNo}` : `실패: ${r.msg}`);
+            rows.push(logRow('매수', `${a.name} ${a.qty}주 · ${won(a.price)}원 (${pct(a.changePct)})`, ts + dry, res, r.ok === false));
+          } else if (a.type === 'SELL') {
+            const r = a.result || {};
+            const res = r.dry ? '시뮬레이션' : (r.ok ? `주문 #${r.ordNo}` : `실패: ${r.msg}`);
+            rows.push(logRow('매도', `${a.name} ${a.qty}주 · ${a.reason} (${pct(a.pnlRate)})`, ts + dry, res, r.ok === false));
+          } else if (a.type === 'HOLD') {
+            rows.push(logRow('HOLD', a.msg || '조건 충족 종목 없음', ts + dry, ''));
+          }
+        });
+        (entry.errors || []).forEach(e => rows.push(logRow('SKIP', '오류: ' + e, ts + dry, '', true)));
+      });
+      el.innerHTML = rows.slice(0, 40).join('') || '<div class="empty">실행 기록 없음</div>';
+    }
+
+    function logRow(tag, main, time, res, fail) {
+      const cls = tag === '매수' ? 'tag-buy' : tag === '매도' ? 'tag-sell' : tag === 'HOLD' ? 'tag-hold' : 'tag-skip';
+      return `
+        <div class="log-row">
+          <div class="log-tag ${cls}">${tag}</div>
+          <div class="log-body">
+            <div class="log-main">${main}</div>
+            ${res ? `<div class="log-res ${fail ? 'fail' : ''}">${res}</div>` : ''}
+            <div class="log-time">${time}</div>
+          </div>
+        </div>`;
+    }
+
+    async function loadStatus() {
+      try {
+        const d = await call({ action: 'status' });
+        renderRules(d.config);
+        renderHoldings(d.holdings, d.holdingsError);
+        renderLog(d.log);
+        const badge = document.getElementById('marketBadge');
+        badge.textContent = d.marketOpen ? '장중' : '장 마감';
+        badge.className = 'badge ' + (d.marketOpen ? 'open' : 'close');
+        document.getElementById('lastTs').textContent = '업데이트 ' + d.ts;
+      } catch (e) {
+        document.getElementById('holdings').innerHTML = `<div class="empty">오류: ${e.message}</div>`;
+      }
+    }
+
+    async function runTrade(dry) {
+      const btn = dry ? document.getElementById('btnDry') : document.getElementById('btnRun');
+      const orig = btn.textContent;
+      if (!dry && !confirm('실제로 모의투자 계좌에 매매 주문을 넣습니다. 진행할까요?')) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin">⏳</span> 실행 중…';
+      try {
+        const params = dry ? { action: 'run', dry: '1' } : { action: 'run' };
+        await call(params);
+        await loadStatus();
+      } catch (e) {
+        alert('실행 오류: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    }
+
+    document.getElementById('btnDry').addEventListener('click', () => runTrade(true));
+    document.getElementById('btnRun').addEventListener('click', () => runTrade(false));
+
+    loadStatus();
+    setInterval(loadStatus, 30000);   // 30초마다 현황 갱신
+  </script>
+</body>
+</html>
