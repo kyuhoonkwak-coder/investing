@@ -29,3 +29,7 @@ define('GROQ_API_KEY', 'YOUR_GROQ_API_KEY');
 // ===== DART 전자공시 API =====
 // https://opendart.fss.or.kr 에서 발급
 define('DART_API_KEY', 'YOUR_DART_API_KEY');
+
+// ===== 자동매매 봇 =====
+// 웹에서 auto_trade.php 호출 시 ?key= 로 전달할 비밀 키 (임의 문자열)
+define('AUTO_TRADE_SECRET', 'YOUR_RANDOM_SECRET');
