@@ -18,8 +18,8 @@
 require_once __DIR__ . '/config.php';
 
 /* ───────── 설정 ───────── */
-const BUDGET_PER_STOCK = 100000;   // 1종목당 매수 예산(원)
-const MAX_POSITIONS    = 3;        // 최대 동시 보유 종목 수
+const BUDGET_PER_STOCK = 10000000; // 1종목당 매수 예산(원)
+const MAX_POSITIONS    = 5;        // 최대 동시 보유 종목 수
 const BUY_PCT_MIN      = 1.0;      // 매수 하한 등락률(%)
 const BUY_PCT_MAX      = 4.0;      // 매수 상한 등락률(%)
 const TAKE_PROFIT_PCT  = 5.0;      // 익절 기준(%)
